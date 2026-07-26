@@ -1,0 +1,19 @@
+# datasets and model files are too large for git
+data/
+runs/
+backend/weights/*.pt
+*.pt
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# editors
+.idea/
+.vscode/
+.DS_Store
+
+# keep the folder structure
+!.gitkeep

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Metro platform crowd density</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #fafaf8; color: #111; }
+  h1 { font-size: 20px; font-weight: 500; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  button { padding: 8px 14px; border: 1px solid #bbb; background: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  button.active { border-color: #2a78d6; color: #2a78d6; }
+  #stage { position: relative; display: inline-block; max-width: 100%; }
+  #stage img, #stage video { max-width: 100%; display: block; border-radius: 8px; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+  .stat { background: #fff; border: 1px solid #e5e5e0; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
+  .stat .label { font-size: 12px; color: #777; }
+  .stat .value { font-size: 22px; font-weight: 500; }
+  .zones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 460px; }
+  .zone { border: 1px solid #e5e5e0; border-radius: 8px; padding: 8px; text-align: center; background: #fff; font-size: 13px; }
+  .note { font-size: 13px; color: #777; }
+  video#cam { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Metro platform crowd density</h1>
+
+<div class="row">
+  <button id="mode-image" class="active">Image</button>
+  <button id="mode-video">Video file</button>
+  <button id="mode-live">Live camera</button>
+</div>
+
+<div class="row">
+  <input type="file" id="fileInput" accept="image/*" />
+  <label>Model
+    <select id="modelSelect">
+      <option value="finetuned">Fine-tuned</option>
+      <option value="baseline">Baseline</option>
+    </select>
+  </label>
+  <label>Confidence
+    <input type="range" id="confInput" min="0.05" max="0.95" step="0.05" value="0.35" />
+    <span id="confOut">0.35</span>
+  </label>
+</div>
+
+<div id="stage">
+  <img id="preview" alt="" />
+  <video id="player" playsinline muted style="display:none"></video>
+  <video id="cam" playsinline muted autoplay></video>
+  <canvas id="overlay"></canvas>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="label">People</div><div class="value" id="countOut">–</div></div>
+  <div class="stat"><div class="label">Density</div><div class="value" id="densityOut">–</div></div>
+  <div class="stat"><div class="label">Speed</div><div class="value" id="fpsOut">–</div></div>
+</div>
+
+<div class="zones" id="zonesOut"></div>
+<p class="note" id="note">Live camera needs an https address. Use ngrok or a Cloudflare tunnel when testing on a phone.</p>
+
+<script>
+const API = "http://localhost:8000/detect";
+
+const els = {
+  file: document.getElementById("fileInput"),
+  preview: document.getElementById("preview"),
+  player: document.getElementById("player"),
+  cam: document.getElementById("cam"),
+  overlay: document.getElementById("overlay"),
+  model: document.getElementById("modelSelect"),
+  conf: document.getElementById("confInput"),
+  confOut: document.getElementById("confOut"),
+  count: document.getElementById("countOut"),
+  density: document.getElementById("densityOut"),
+  fps: document.getElementById("fpsOut"),
+  zones: document.getElementById("zonesOut"),
+  note: document.getElementById("note")
+};
+
+let mode = "image";
+let looping = false;
+let stream = null;
+const work = document.createElement("canvas");
+
+els.conf.addEventListener("input", () => els.confOut.textContent = Number(els.conf.value).toFixed(2));
+
+function setMode(next) {
+  mode = next;
+  looping = false;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  ["image", "video", "live"].forEach(m =>
+    document.getElementById("mode-" + m).classList.toggle("active", m === next));
+  els.preview.style.display = next === "image" ? "block" : "none";
+  els.player.style.display = next === "video" ? "block" : "none";
+  els.cam.style.display = next === "live" ? "block" : "none";
+  els.file.style.display = next === "live" ? "none" : "inline-block";
+  els.file.accept = next === "video" ? "video/*" : "image/*";
+  clearOverlay();
+  if (next === "live") startCamera();
+}
+
+document.getElementById("mode-image").onclick = () => setMode("image");
+document.getElementById("mode-video").onclick = () => setMode("video");
+document.getElementById("mode-live").onclick = () => setMode("live");
+
+els.file.addEventListener("change", () => {
+  const f = els.file.files[0];
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  if (mode === "image") {
+    els.preview.onload = () => detectFrom(els.preview);
+    els.preview.src = url;
+  } else {
+    els.player.src = url;
+    els.player.onloadeddata = () => { els.player.play(); looping = true; loop(els.player); };
+  }
+});
+
+async function startCamera() {
+  if (!navigator.mediaDevices || !window.isSecureContext) {
+    els.note.textContent = "Camera blocked: this page must be served over https (or localhost).";
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false
+    });
+    els.cam.srcObject = stream;
+    await els.cam.play();
+    looping = true;
+    loop(els.cam);
+  } catch (err) {
+    els.note.textContent = "Could not start camera: " + err.message;
+  }
+}
+
+function frameToBlob(source) {
+  const w = source.videoWidth || source.naturalWidth;
+  const h = source.videoHeight || source.naturalHeight;
+  const scale = Math.min(1, 640 / w);
+  work.width = Math.round(w * scale);
+  work.height = Math.round(h * scale);
+  work.getContext("2d").drawImage(source, 0, 0, work.width, work.height);
+  return new Promise(res => work.toBlob(res, "image/jpeg", 0.7));
+}
+
+async function detectFrom(source) {
+  const blob = await frameToBlob(source);
+  if (!blob) return null;
+  const form = new FormData();
+  form.append("file", blob, "frame.jpg");
+  form.append("model", els.model.value);
+  form.append("confidence", els.conf.value);
+  const started = performance.now();
+  try {
+    const res = await fetch(API, { method: "POST", body: form });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    render(data, source, performance.now() - started);
+    return data;
+  } catch (err) {
+    els.note.textContent = "Request failed: " + err.message;
+    return null;
+  }
+}
+
+async function loop(source) {
+  while (looping) {
+    await detectFrom(source);
+    await new Promise(r => setTimeout(r, 120));
+  }
+}
+
+function clearOverlay() {
+  const ctx = els.overlay.getContext("2d");
+  ctx.clearRect(0, 0, els.overlay.width, els.overlay.height);
+}
+
+function render(data, source, elapsedMs) {
+  const displayW = source.clientWidth;
+  const displayH = source.clientHeight;
+  els.overlay.width = displayW;
+  els.overlay.height = displayH;
+  const sx = displayW / data.image_size.width;
+  const sy = displayH / data.image_size.height;
+
+  const ctx = els.overlay.getContext("2d");
+  ctx.clearRect(0, 0, displayW, displayH);
+  ctx.strokeStyle = "#1baf7a";
+  ctx.lineWidth = 2;
+  data.boxes.forEach(b => {
+    ctx.strokeRect(b.x1 * sx, b.y1 * sy, (b.x2 - b.x1) * sx, (b.y2 - b.y1) * sy);
+  });
+
+  els.count.textContent = data.count;
+  els.density.textContent = data.density;
+  els.fps.textContent = (1000 / Math.max(elapsedMs, 1)).toFixed(1) + " fps";
+  els.zones.innerHTML = data.zones.map(z =>
+    `<div class="zone"><div>${z.zone}</div><strong>${z.density} · ${z.count}</strong></div>`).join("");
+}
+
+setMode("image");
+</script>
+</body>
+</html>

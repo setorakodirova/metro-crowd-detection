@@ -1,0 +1,9 @@
+# Tells YOLO where the dataset lives and what classes exist.
+# Paths are relative to this file.
+
+path: ../data
+train: train/images
+val: val/images
+
+names:
+  0: person
