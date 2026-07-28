@@ -45,6 +45,7 @@
     <input type="range" id="confInput" min="0.05" max="0.95" step="0.05" value="0.35" />
     <span id="confOut">0.35</span>
   </label>
+  <label><input type="checkbox" id="labelToggle" checked /> Show scores</label>
 </div>
 
 <div id="stage">
@@ -54,13 +55,27 @@
   <canvas id="overlay"></canvas>
 </div>
 
+<div id="alertBanner" style="display:none; background:#fbe9e7; border:1px solid #e57373; color:#b71c1c; padding:12px 16px; border-radius:8px; margin:12px 0; font-weight:500;"></div>
+
 <div class="stats">
   <div class="stat"><div class="label">People</div><div class="value" id="countOut">–</div></div>
   <div class="stat"><div class="label">Density</div><div class="value" id="densityOut">–</div></div>
+  <div class="stat"><div class="label">Capacity used</div><div class="value" id="capacityOut">–</div></div>
   <div class="stat"><div class="label">Speed</div><div class="value" id="fpsOut">–</div></div>
 </div>
 
 <div class="zones" id="zonesOut"></div>
+
+<p id="recommendation" style="font-size:14px; color:#333; margin:10px 0; display:none;"></p>
+
+<div style="margin:16px 0; max-width:640px;">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <span class="label" style="font-size:12px; color:#777;">Density over time</span>
+    <button id="clearHistory" style="font-size:12px; padding:4px 10px;">Clear</button>
+  </div>
+  <canvas id="historyChart" width="640" height="140" style="width:100%; border:1px solid #e5e5e0; border-radius:8px; background:#fff; margin-top:6px;"></canvas>
+</div>
+
 <p class="note" id="note">Live camera needs an https address. Use ngrok or a Cloudflare tunnel when testing on a phone.</p>
 
 <script>
@@ -79,8 +94,16 @@ const els = {
   density: document.getElementById("densityOut"),
   fps: document.getElementById("fpsOut"),
   zones: document.getElementById("zonesOut"),
-  note: document.getElementById("note")
+  note: document.getElementById("note"),
+  capacity: document.getElementById("capacityOut"),
+  alert: document.getElementById("alertBanner"),
+  reco: document.getElementById("recommendation"),
+  clearHistory: document.getElementById("clearHistory")
 };
+
+// --- Feature settings ---
+const PLATFORM_CAPACITY = 50;   // estimated safe capacity (experimental, adjust per station)
+const history = [];             // {time, count} entries for the chart
 
 let mode = "image";
 let looping = false;
@@ -88,6 +111,11 @@ let stream = null;
 const work = document.createElement("canvas");
 
 els.conf.addEventListener("input", () => els.confOut.textContent = Number(els.conf.value).toFixed(2));
+
+let showLabels = true;
+document.getElementById("labelToggle").addEventListener("change", e => {
+  showLabels = e.target.checked;
+});
 
 function setMode(next) {
   mode = next;
@@ -191,10 +219,29 @@ function render(data, source, elapsedMs) {
 
   const ctx = els.overlay.getContext("2d");
   ctx.clearRect(0, 0, displayW, displayH);
-  ctx.strokeStyle = "#1baf7a";
   ctx.lineWidth = 2;
+  ctx.font = "13px system-ui, sans-serif";
+  ctx.textBaseline = "bottom";
+
   data.boxes.forEach(b => {
-    ctx.strokeRect(b.x1 * sx, b.y1 * sy, (b.x2 - b.x1) * sx, (b.y2 - b.y1) * sy);
+    const x = b.x1 * sx;
+    const y = b.y1 * sy;
+    const w = (b.x2 - b.x1) * sx;
+    const h = (b.y2 - b.y1) * sy;
+
+    ctx.strokeStyle = "#1baf7a";
+    ctx.strokeRect(x, y, w, h);
+
+    if (showLabels) {
+      const label = `person ${b.confidence.toFixed(2)}`;
+      const textW = ctx.measureText(label).width;
+      const boxH = 17;
+      const labelY = y > boxH ? y : y + h + boxH;
+      ctx.fillStyle = "#1baf7a";
+      ctx.fillRect(x, labelY - boxH, textW + 8, boxH);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, x + 4, labelY - 3);
+    }
   });
 
   els.count.textContent = data.count;
@@ -202,7 +249,83 @@ function render(data, source, elapsedMs) {
   els.fps.textContent = (1000 / Math.max(elapsedMs, 1)).toFixed(1) + " fps";
   els.zones.innerHTML = data.zones.map(z =>
     `<div class="zone"><div>${z.zone}</div><strong>${z.density} · ${z.count}</strong></div>`).join("");
+
+  updateFeatures(data);
 }
+
+// --- Feature 1: capacity percentage ---
+function updateFeatures(data) {
+  const pct = Math.round((data.count / PLATFORM_CAPACITY) * 100);
+  els.capacity.textContent = pct + "%";
+
+  // --- Feature 2: alert banner ---
+  if (data.density === "Crowded") {
+    els.alert.style.display = "block";
+    els.alert.textContent = "⚠ Platform crowded — action recommended. Consider dispatching a train or crowd control.";
+  } else {
+    els.alert.style.display = "none";
+  }
+
+  // --- Feature 3: zone-based recommendation ---
+  if (data.zones && data.zones.length === 3) {
+    const busiest = data.zones.reduce((a, b) => (b.count > a.count ? b : a));
+    const emptiest = data.zones.reduce((a, b) => (b.count < a.count ? b : a));
+    if (busiest.count - emptiest.count >= 3) {
+      els.reco.style.display = "block";
+      els.reco.textContent = `Suggestion: ${busiest.zone} is busiest — direct passengers toward ${emptiest.zone}.`;
+    } else {
+      els.reco.style.display = "none";
+    }
+  }
+
+  // --- Feature 4: history + chart ---
+  const now = new Date();
+  history.push({ time: now.toLocaleTimeString(), count: data.count });
+  if (history.length > 40) history.shift();
+  drawHistory();
+}
+
+function drawHistory() {
+  const c = document.getElementById("historyChart");
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+  if (history.length < 2) return;
+
+  const maxC = Math.max(PLATFORM_CAPACITY, ...history.map(h => h.count));
+  const pad = 24;
+  const w = c.width - pad * 2;
+  const h = c.height - pad * 2;
+
+  // capacity line
+  const capY = pad + h - (PLATFORM_CAPACITY / maxC) * h;
+  ctx.strokeStyle = "#e57373";
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(pad, capY); ctx.lineTo(pad + w, capY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#e57373";
+  ctx.font = "11px system-ui";
+  ctx.fillText("capacity", pad + w - 55, capY - 4);
+
+  // count line
+  ctx.strokeStyle = "#2a78d6";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  history.forEach((pt, i) => {
+    const x = pad + (i / (history.length - 1)) * w;
+    const y = pad + h - (pt.count / maxC) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = "#777";
+  ctx.fillText("0", 4, pad + h);
+  ctx.fillText(String(maxC), 4, pad + 4);
+}
+
+els.clearHistory.addEventListener("click", () => {
+  history.length = 0;
+  drawHistory();
+});
 
 setMode("image");
 </script>
