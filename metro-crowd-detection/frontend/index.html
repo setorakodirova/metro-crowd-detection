@@ -3,91 +3,355 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Metro platform crowd density</title>
+<title>Metro Crowd Monitor</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #fafaf8; color: #111; }
-  h1 { font-size: 20px; font-weight: 500; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
-  button { padding: 8px 14px; border: 1px solid #bbb; background: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; }
-  button.active { border-color: #2a78d6; color: #2a78d6; }
-  #stage { position: relative; display: inline-block; max-width: 100%; }
-  #stage img, #stage video { max-width: 100%; display: block; border-radius: 8px; }
+  :root {
+    --accent: #8E5BFF;
+    --accent-soft: #f4f0ff;
+    --accent-line: #e4dcfb;
+    --accent-ink: #5a3fa8;
+    --ink: #1a1a22;
+    --muted: #8a8a96;
+    --faint: #a8a8b0;
+    --line: #ececf2;
+    --bg: #fbfaff;
+    --card: #ffffff;
+    --ok: #0F6E56; --ok-bg:#e6f5ee;
+    --warn: #854F0B; --warn-bg:#faeeda;
+    --bad: #791F1F; --bad-bg:#fcebeb; --bad-dot:#E24B4A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    margin: 0; background: var(--bg); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* screen switching */
+  .screen { display: none; animation: fade .4s ease; }
+  .screen.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  .ring-anim { animation: pulse 2.4s ease-in-out infinite; transform-origin: center; }
+  .live-dot { animation: blink 1.4s ease-in-out infinite; }
+
+  .logo { width: 34px; height: 34px; border-radius: 9px; background: var(--accent); display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 17px; }
+
+  /* ---------- LOGIN ---------- */
+  #screen-login { min-height: 78vh; display: none; place-items: center; }
+  #screen-login.active { display: grid; }
+  .login-card { width: 100%; max-width: 340px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 30px 24px; text-align: center; }
+  .login-card .logo { margin: 0 auto 16px; width: 42px; height: 42px; font-size: 20px; border-radius: 12px; }
+  .login-card h1 { font-size: 18px; font-weight: 600; margin: 0 0 3px; }
+  .login-card p { font-size: 12.5px; color: var(--muted); margin: 0 0 22px; }
+  .btn { display: block; width: 100%; border: 0; border-radius: 10px; padding: 13px; font-size: 13.5px; font-weight: 500; cursor: pointer; font-family: inherit; margin-bottom: 10px; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #7d47f5; }
+  .btn-ghost { background: var(--card); border: 1px solid var(--accent-line); color: var(--accent-ink); }
+  .btn-ghost:hover { background: var(--accent-soft); }
+  .op-login { display: none; margin-top: 6px; }
+  .op-login input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; font-size: 13px; font-family: inherit; margin-bottom: 10px; }
+  .op-login .hint { font-size: 11px; color: var(--faint); margin: 2px 0 0; }
+  .op-error { color: var(--bad-dot); font-size: 12px; margin: 0 0 8px; display: none; }
+
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .brand p { font-size: 11.5px; color: var(--muted); margin: 1px 0 0; }
+  .pill { font-size: 11.5px; color: var(--accent-ink); background: var(--accent-soft); padding: 5px 11px; border-radius: 999px; }
+  .switch-btn { font-size: 12px; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; cursor: pointer; font-family: inherit; }
+  .switch-btn:hover { color: var(--ink); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card + .card { margin-top: 16px; }
+  .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; }
+
+  /* ring */
+  .ring-wrap { position: relative; width: 150px; height: 150px; flex: none; }
+  .ring-wrap svg { display: block; }
+  .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .ring-center .big { font-size: 34px; font-weight: 650; letter-spacing: -0.02em; }
+  .ring-center .sub { font-size: 11px; color: var(--muted); margin-top: -2px; }
+
+  .badge { display: inline-block; padding: 4px 13px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+  .badge.Low { background: var(--ok-bg); color: var(--ok); }
+  .badge.Moderate { background: var(--warn-bg); color: var(--warn); }
+  .badge.Crowded { background: var(--bad-bg); color: var(--bad); }
+
+  .bar { height: 7px; background: #f0eef6; border-radius: 99px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); border-radius: 99px; transition: width .5s ease; }
+
+  .alert { display: none; align-items: center; gap: 9px; background: var(--bad-bg); border: 1px solid #f2c0cb; color: var(--bad); padding: 10px 12px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+  .alert .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bad-dot); flex: none; }
+
+  .zones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .zone { border: 1px solid var(--line); border-radius: 10px; padding: 11px 8px; text-align: center; }
+  .zone .zn { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .zone .zc { font-size: 20px; font-weight: 650; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .zone .zd { font-size: 10px; font-weight: 600; }
+  .zone.Low .zd { color: var(--ok); } .zone.Moderate .zd { color: var(--warn); } .zone.Crowded .zd { color: var(--bad); }
+
+  .reco { display: none; margin-top: 12px; padding: 12px 14px; background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 10px; font-size: 13px; color: var(--accent-ink); }
+  .reco b { font-weight: 650; color: var(--accent); }
+
+  /* operator layout */
+  .op-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .op-grid { grid-template-columns: 1fr; } }
+
+  .segmented { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+  .segmented button { border: 0; background: transparent; padding: 7px 13px; border-radius: 8px; font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; font-family: inherit; }
+  .segmented button.active { background: var(--card); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; margin-top: 13px; }
+  .controls label { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+  select, input[type=file] { font-family: inherit; font-size: 12.5px; }
+  select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--card); color: var(--ink); }
+  input[type=range] { accent-color: var(--accent); }
+  .controls .val { color: var(--ink); font-weight: 600; }
+
+  #stage { position: relative; display: block; margin-top: 14px; border-radius: 12px; overflow: hidden; background: #ecebf2; min-height: 200px; }
+  #stage img, #stage video { max-width: 100%; display: block; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
-  .stat { background: #fff; border: 1px solid #e5e5e0; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
-  .stat .label { font-size: 12px; color: #777; }
-  .stat .value { font-size: 22px; font-weight: 500; }
-  .zones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 460px; }
-  .zone { border: 1px solid #e5e5e0; border-radius: 8px; padding: 8px; text-align: center; background: #fff; font-size: 13px; }
-  .note { font-size: 13px; color: #777; }
-  video#cam { display: none; }
+  #stage.empty::after { content: "Upload an image or start the camera"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 12.5px; }
+
+  .op-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .metric { border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; }
+  .metric .k { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .metric .v { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
+  .metric .v.sm { font-size: 15px; }
+
+  .chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .trend { font-size: 11px; color: var(--accent); }
+  #historyChart { width: 100%; height: 130px; display: block; }
+  .ghost { border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 11px; padding: 4px 10px; border-radius: 8px; cursor: pointer; font-family: inherit; }
+
+  .note { font-size: 12px; color: var(--muted); margin: 12px 0 0; line-height: 1.5; }
+  .foot { margin-top: 22px; font-size: 11.5px; color: var(--faint); text-align: center; }
+  .demo-tag { font-size: 10px; color: var(--faint); background: var(--bg); border: 1px solid var(--line); padding: 2px 7px; border-radius: 5px; margin-left: 6px; }
 </style>
 </head>
 <body>
 
-<h1>Metro platform crowd density</h1>
+<!-- ============ LOGIN ============ -->
+<div class="screen active" id="screen-login">
+  <div class="login-card">
+    <div class="logo">M</div>
+    <h1>Metro Crowd Monitor</h1>
+    <p>Real-time platform density</p>
 
-<div class="row">
-  <button id="mode-image" class="active">Image</button>
-  <button id="mode-video">Video file</button>
-  <button id="mode-live">Live camera</button>
-</div>
+    <div id="roleChoice">
+      <button class="btn btn-primary" onclick="showScreen('passenger')">Continue as passenger</button>
+      <button class="btn btn-ghost" onclick="toggleOpLogin()">Operator sign in</button>
+    </div>
 
-<div class="row">
-  <input type="file" id="fileInput" accept="image/*" />
-  <label>Model
-    <select id="modelSelect">
-      <option value="finetuned">Fine-tuned</option>
-      <option value="baseline">Baseline</option>
-    </select>
-  </label>
-  <label>Confidence
-    <input type="range" id="confInput" min="0.05" max="0.95" step="0.05" value="0.35" />
-    <span id="confOut">0.35</span>
-  </label>
-  <label><input type="checkbox" id="labelToggle" checked /> Show scores</label>
-</div>
-
-<div id="stage">
-  <img id="preview" alt="" />
-  <video id="player" playsinline muted style="display:none"></video>
-  <video id="cam" playsinline muted autoplay></video>
-  <canvas id="overlay"></canvas>
-</div>
-
-<div id="alertBanner" style="display:none; background:#fbe9e7; border:1px solid #e57373; color:#b71c1c; padding:12px 16px; border-radius:8px; margin:12px 0; font-weight:500;"></div>
-
-<div class="stats">
-  <div class="stat"><div class="label">People</div><div class="value" id="countOut">–</div></div>
-  <div class="stat"><div class="label">Density</div><div class="value" id="densityOut">–</div></div>
-  <div class="stat"><div class="label">Capacity used</div><div class="value" id="capacityOut">–</div></div>
-  <div class="stat"><div class="label">Speed</div><div class="value" id="fpsOut">–</div></div>
-</div>
-
-<div class="zones" id="zonesOut"></div>
-
-<p id="recommendation" style="font-size:14px; color:#333; margin:10px 0; display:none;"></p>
-
-<div style="margin:16px 0; max-width:640px;">
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-    <span class="label" style="font-size:12px; color:#777;">Density over time</span>
-    <button id="clearHistory" style="font-size:12px; padding:4px 10px;">Clear</button>
+    <div class="op-login" id="opLogin">
+      <p class="op-error" id="opError">Wrong password. Try again.</p>
+      <input type="password" id="opPass" placeholder="Operator password" onkeydown="if(event.key==='Enter')tryOperator()" />
+      <button class="btn btn-primary" onclick="tryOperator()">Sign in</button>
+      <button class="btn btn-ghost" onclick="toggleOpLogin()">Back</button>
+      <p class="hint">Demo password: metro</p>
+    </div>
   </div>
-  <canvas id="historyChart" width="640" height="140" style="width:100%; border:1px solid #e5e5e0; border-radius:8px; background:#fff; margin-top:6px;"></canvas>
 </div>
 
-<p class="note" id="note">Live camera needs an https address. Use ngrok or a Cloudflare tunnel when testing on a phone.</p>
+<!-- ============ PASSENGER ============ -->
+<div class="screen" id="screen-passenger">
+  <div class="wrap" style="max-width:380px;">
+    <header>
+      <div class="brand">
+        <div class="logo">M</div>
+        <div><h1>Alisher Navoi</h1><p>Live platform status</p></div>
+      </div>
+      <button class="switch-btn" onclick="showScreen('login')">Exit</button>
+    </header>
+
+    <div class="card" style="text-align:center;">
+      <div class="ring-wrap ring-anim" style="margin:4px auto 0;">
+        <svg viewBox="0 0 150 150" width="150" height="150">
+          <circle cx="75" cy="75" r="62" fill="none" stroke="#f0eaff" stroke-width="12"/>
+          <circle id="pRing" cx="75" cy="75" r="62" fill="none" stroke="var(--accent)" stroke-width="12"
+                  stroke-linecap="round" stroke-dasharray="390" stroke-dashoffset="390" transform="rotate(-90 75 75)"/>
+        </svg>
+        <div class="ring-center">
+          <span class="big" id="pDensity" style="font-size:20px;">–</span>
+          <span class="sub">right now</span>
+        </div>
+      </div>
+
+      <div class="reco" id="pReco" style="display:block; margin-top:18px; text-align:left;">
+        Analysing platform…
+      </div>
+
+      <div style="margin-top:14px; padding:12px 14px; background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:10px; display:flex; align-items:center; gap:11px; text-align:left;">
+        <div style="font-size:20px;">⏱</div>
+        <div>
+          <div style="font-size:13px; font-weight:600; color:var(--accent-ink);">Better in ~8 min <span class="demo-tag">sample</span></div>
+          <div style="font-size:11px; color:var(--muted);">crowds usually ease after the next train</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title" style="margin-bottom:4px;">Nearby stations <span class="demo-tag">sample</span></p>
+      <div id="nearbyList"></div>
+    </div>
+
+    <p class="foot">Counts people only — no identification. Density is experimental.</p>
+  </div>
+</div>
+
+<!-- ============ OPERATOR ============ -->
+<div class="screen" id="screen-operator">
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo">M</div>
+        <div><h1>Alisher Navoi — Operator console</h1><p>Camera-based platform density</p></div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="pill" id="modelPill">fine-tuned model</span>
+        <button class="switch-btn" onclick="showScreen('login')">Sign out</button>
+      </div>
+    </header>
+
+    <div class="op-grid">
+      <!-- LEFT: input -->
+      <div>
+        <div class="card">
+          <p class="card-title">Source</p>
+          <div class="segmented">
+            <button id="mode-image" class="active">Image</button>
+            <button id="mode-video">Video</button>
+            <button id="mode-live">Live camera</button>
+          </div>
+          <div class="controls">
+            <input type="file" id="fileInput" accept="image/*" />
+            <label>Model
+              <select id="modelSelect">
+                <option value="finetuned">Fine-tuned</option>
+                <option value="baseline">Baseline</option>
+              </select>
+            </label>
+            <label>Confidence
+              <input type="range" id="confInput" min="0.05" max="0.95" step="0.05" value="0.35" />
+              <span class="val" id="confOut">0.35</span>
+            </label>
+            <label><input type="checkbox" id="labelToggle" checked /> Scores</label>
+          </div>
+          <div id="stage" class="empty">
+            <img id="preview" alt="" />
+            <video id="player" playsinline muted style="display:none"></video>
+            <video id="cam" playsinline muted autoplay style="display:none"></video>
+            <canvas id="overlay"></canvas>
+          </div>
+          <p class="note" id="note">Live camera needs an https address — use a tunnel (ngrok) when testing on a phone.</p>
+        </div>
+      </div>
+
+      <!-- RIGHT: readings -->
+      <div>
+        <div class="card">
+          <p class="card-title">Current reading</p>
+          <div style="display:flex; align-items:center; gap:16px;">
+            <div class="ring-wrap ring-anim" style="width:120px; height:120px;">
+              <svg viewBox="0 0 150 150" width="120" height="120">
+                <circle cx="75" cy="75" r="62" fill="none" stroke="#f0eaff" stroke-width="13"/>
+                <circle id="oRing" cx="75" cy="75" r="62" fill="none" stroke="var(--accent)" stroke-width="13"
+                        stroke-linecap="round" stroke-dasharray="390" stroke-dashoffset="390" transform="rotate(-90 75 75)"/>
+              </svg>
+              <div class="ring-center">
+                <span class="big" id="countOut">–</span>
+                <span class="sub">people</span>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <span class="badge" id="densityOut">–</span>
+              <div style="font-size:11px; color:var(--muted); margin:11px 0 5px;">Capacity used · <span id="capacityOut">–</span></div>
+              <div class="bar"><div id="capBar" style="width:0%"></div></div>
+            </div>
+          </div>
+
+          <div class="alert" id="alertBanner" style="margin-top:14px;"><span class="dot"></span><span id="alertText"></span></div>
+
+          <div class="zones" id="zonesOut" style="margin-top:14px;"></div>
+          <div class="reco" id="recommendation"></div>
+          <p class="note" style="margin-top:10px;">Speed: <span id="fpsOut">–</span></p>
+        </div>
+
+        <div class="card">
+          <div class="chart-head">
+            <p class="card-title" style="margin:0;">Density over time</p>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="trend" id="trendLabel"></span>
+              <button class="ghost" id="clearHistory">Clear</button>
+            </div>
+          </div>
+          <canvas id="historyChart" width="520" height="130"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <p class="foot">Counts people only — no identification, no tracking. Density and capacity are experimental.</p>
+  </div>
+</div>
 
 <script>
 const API = "http://localhost:8000/detect";
+const OPERATOR_PASSWORD = "metro";   // demo only — not real authentication
+const RING_LEN = 390;                // circumference of r=62 ring
 
+// ---------- screen switching ----------
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById("screen-" + name).classList.add("active");
+  if (name === "operator") setMode("image");
+  if (name === "passenger") startPassenger();
+  if (name === "login") { document.getElementById("opLogin").style.display = "none";
+                          document.getElementById("roleChoice").style.display = "block"; }
+}
+function toggleOpLogin() {
+  const op = document.getElementById("opLogin"), rc = document.getElementById("roleChoice");
+  const showing = op.style.display === "block";
+  op.style.display = showing ? "none" : "block";
+  rc.style.display = showing ? "block" : "none";
+  document.getElementById("opError").style.display = "none";
+}
+function tryOperator() {
+  const val = document.getElementById("opPass").value;
+  if (val === OPERATOR_PASSWORD) { showScreen("operator"); }
+  else { document.getElementById("opError").style.display = "block"; }
+}
+
+// ---------- shared helpers ----------
+function setRing(el, count, capacity) {
+  const frac = Math.min(1, count / capacity);
+  el.style.transition = "stroke-dashoffset .6s ease, stroke .4s ease";
+  el.style.strokeDashoffset = RING_LEN * (1 - frac);
+}
+function countUp(el, target) {
+  const start = parseInt(el.textContent) || 0;
+  const t0 = performance.now(), dur = 500;
+  function step(t) {
+    const k = Math.min(1, (t - t0) / dur);
+    el.textContent = Math.round(start + (target - start) * k);
+    if (k < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ========== OPERATOR (full logic, unchanged core) ==========
 const els = {
   file: document.getElementById("fileInput"),
   preview: document.getElementById("preview"),
   player: document.getElementById("player"),
   cam: document.getElementById("cam"),
   overlay: document.getElementById("overlay"),
+  stage: document.getElementById("stage"),
   model: document.getElementById("modelSelect"),
+  modelPill: document.getElementById("modelPill"),
   conf: document.getElementById("confInput"),
   confOut: document.getElementById("confOut"),
   count: document.getElementById("countOut"),
@@ -96,30 +360,29 @@ const els = {
   zones: document.getElementById("zonesOut"),
   note: document.getElementById("note"),
   capacity: document.getElementById("capacityOut"),
+  capBar: document.getElementById("capBar"),
+  oRing: document.getElementById("oRing"),
   alert: document.getElementById("alertBanner"),
+  alertText: document.getElementById("alertText"),
   reco: document.getElementById("recommendation"),
+  trend: document.getElementById("trendLabel"),
   clearHistory: document.getElementById("clearHistory")
 };
 
-// --- Feature settings ---
-const PLATFORM_CAPACITY = 50;   // estimated safe capacity (experimental, adjust per station)
-const history = [];             // {time, count} entries for the chart
+const PLATFORM_CAPACITY = 50;
+const history = [];
 
-let mode = "image";
-let looping = false;
-let stream = null;
+let mode = "image", looping = false, stream = null;
 const work = document.createElement("canvas");
 
 els.conf.addEventListener("input", () => els.confOut.textContent = Number(els.conf.value).toFixed(2));
+els.model.addEventListener("change", () => els.modelPill.textContent = els.model.value + " model");
 
 let showLabels = true;
-document.getElementById("labelToggle").addEventListener("change", e => {
-  showLabels = e.target.checked;
-});
+document.getElementById("labelToggle").addEventListener("change", e => { showLabels = e.target.checked; });
 
 function setMode(next) {
-  mode = next;
-  looping = false;
+  mode = next; looping = false;
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   ["image", "video", "live"].forEach(m =>
     document.getElementById("mode-" + m).classList.toggle("active", m === next));
@@ -139,6 +402,7 @@ document.getElementById("mode-live").onclick = () => setMode("live");
 els.file.addEventListener("change", () => {
   const f = els.file.files[0];
   if (!f) return;
+  els.stage.classList.remove("empty");
   const url = URL.createObjectURL(f);
   if (mode === "image") {
     els.preview.onload = () => detectFrom(els.preview);
@@ -150,29 +414,24 @@ els.file.addEventListener("change", () => {
 });
 
 async function startCamera() {
+  els.stage.classList.remove("empty");
   if (!navigator.mediaDevices || !window.isSecureContext) {
     els.note.textContent = "Camera blocked: this page must be served over https (or localhost).";
     return;
   }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false
-    });
-    els.cam.srcObject = stream;
-    await els.cam.play();
-    looping = true;
-    loop(els.cam);
-  } catch (err) {
-    els.note.textContent = "Could not start camera: " + err.message;
-  }
+      video: { facingMode: "environment", width: { ideal: 1280 } }, audio: false });
+    els.cam.srcObject = stream; await els.cam.play();
+    looping = true; loop(els.cam);
+  } catch (err) { els.note.textContent = "Could not start camera: " + err.message; }
 }
 
 function frameToBlob(source) {
   const w = source.videoWidth || source.naturalWidth;
   const h = source.videoHeight || source.naturalHeight;
   const scale = Math.min(1, 640 / w);
-  work.width = Math.round(w * scale);
-  work.height = Math.round(h * scale);
+  work.width = Math.round(w * scale); work.height = Math.round(h * scale);
   work.getContext("2d").drawImage(source, 0, 0, work.width, work.height);
   return new Promise(res => work.toBlob(res, "image/jpeg", 0.7));
 }
@@ -191,17 +450,11 @@ async function detectFrom(source) {
     const data = await res.json();
     render(data, source, performance.now() - started);
     return data;
-  } catch (err) {
-    els.note.textContent = "Request failed: " + err.message;
-    return null;
-  }
+  } catch (err) { els.note.textContent = "Request failed: " + err.message; return null; }
 }
 
 async function loop(source) {
-  while (looping) {
-    await detectFrom(source);
-    await new Promise(r => setTimeout(r, 120));
-  }
+  while (looping) { await detectFrom(source); await new Promise(r => setTimeout(r, 120)); }
 }
 
 function clearOverlay() {
@@ -210,124 +463,151 @@ function clearOverlay() {
 }
 
 function render(data, source, elapsedMs) {
-  const displayW = source.clientWidth;
-  const displayH = source.clientHeight;
-  els.overlay.width = displayW;
-  els.overlay.height = displayH;
-  const sx = displayW / data.image_size.width;
-  const sy = displayH / data.image_size.height;
-
+  const displayW = source.clientWidth, displayH = source.clientHeight;
+  els.overlay.width = displayW; els.overlay.height = displayH;
+  const sx = displayW / data.image_size.width, sy = displayH / data.image_size.height;
   const ctx = els.overlay.getContext("2d");
   ctx.clearRect(0, 0, displayW, displayH);
-  ctx.lineWidth = 2;
-  ctx.font = "13px system-ui, sans-serif";
-  ctx.textBaseline = "bottom";
-
+  ctx.lineWidth = 2; ctx.font = "12px Inter, system-ui, sans-serif"; ctx.textBaseline = "bottom";
   data.boxes.forEach(b => {
-    const x = b.x1 * sx;
-    const y = b.y1 * sy;
-    const w = (b.x2 - b.x1) * sx;
-    const h = (b.y2 - b.y1) * sy;
-
-    ctx.strokeStyle = "#1baf7a";
-    ctx.strokeRect(x, y, w, h);
-
+    const x = b.x1 * sx, y = b.y1 * sy, w = (b.x2 - b.x1) * sx, h = (b.y2 - b.y1) * sy;
+    ctx.strokeStyle = "#8E5BFF"; ctx.strokeRect(x, y, w, h);
     if (showLabels) {
-      const label = `person ${b.confidence.toFixed(2)}`;
-      const textW = ctx.measureText(label).width;
-      const boxH = 17;
+      const label = b.confidence.toFixed(2);
+      const textW = ctx.measureText(label).width, boxH = 16;
       const labelY = y > boxH ? y : y + h + boxH;
-      ctx.fillStyle = "#1baf7a";
-      ctx.fillRect(x, labelY - boxH, textW + 8, boxH);
-      ctx.fillStyle = "#fff";
-      ctx.fillText(label, x + 4, labelY - 3);
+      ctx.fillStyle = "#8E5BFF"; ctx.fillRect(x, labelY - boxH, textW + 8, boxH);
+      ctx.fillStyle = "#fff"; ctx.fillText(label, x + 4, labelY - 3);
     }
   });
 
-  els.count.textContent = data.count;
+  countUp(els.count, data.count);
+  setRing(els.oRing, data.count, PLATFORM_CAPACITY);
   els.density.textContent = data.density;
+  els.density.className = "badge " + data.density;
   els.fps.textContent = (1000 / Math.max(elapsedMs, 1)).toFixed(1) + " fps";
   els.zones.innerHTML = data.zones.map(z =>
-    `<div class="zone"><div>${z.zone}</div><strong>${z.density} · ${z.count}</strong></div>`).join("");
-
+    `<div class="zone ${z.density}"><div class="zn">${z.zone}</div><div class="zc">${z.count}</div><div class="zd">${z.density}</div></div>`).join("");
   updateFeatures(data);
 }
 
-// --- Feature 1: capacity percentage ---
 function updateFeatures(data) {
   const pct = Math.round((data.count / PLATFORM_CAPACITY) * 100);
   els.capacity.textContent = pct + "%";
+  els.capBar.style.width = Math.min(100, pct) + "%";
 
-  // --- Feature 2: alert banner ---
   if (data.density === "Crowded") {
-    els.alert.style.display = "block";
-    els.alert.textContent = "⚠ Platform crowded — action recommended. Consider dispatching a train or crowd control.";
-  } else {
-    els.alert.style.display = "none";
-  }
+    els.alert.style.display = "flex";
+    els.alertText.textContent = "Platform crowded — consider dispatching a train or crowd control.";
+  } else { els.alert.style.display = "none"; }
 
-  // --- Feature 3: zone-based recommendation ---
   if (data.zones && data.zones.length === 3) {
     const busiest = data.zones.reduce((a, b) => (b.count > a.count ? b : a));
     const emptiest = data.zones.reduce((a, b) => (b.count < a.count ? b : a));
     if (busiest.count - emptiest.count >= 3) {
       els.reco.style.display = "block";
-      els.reco.textContent = `Suggestion: ${busiest.zone} is busiest — direct passengers toward ${emptiest.zone}.`;
-    } else {
-      els.reco.style.display = "none";
-    }
+      els.reco.innerHTML = `<b>${busiest.zone}</b> is busiest — direct passengers toward <b>${emptiest.zone}</b>.`;
+    } else { els.reco.style.display = "none"; }
   }
 
-  // --- Feature 4: history + chart ---
-  const now = new Date();
-  history.push({ time: now.toLocaleTimeString(), count: data.count });
+  history.push({ time: new Date().toLocaleTimeString(), count: data.count });
   if (history.length > 40) history.shift();
+  if (history.length >= 2) {
+    const rising = history[history.length-1].count >= history[0].count;
+    els.trend.textContent = rising ? "↑ rising" : "↓ easing";
+  }
   drawHistory();
+
+  // feed passenger view from the latest real reading
+  lastReading = data;
 }
 
 function drawHistory() {
   const c = document.getElementById("historyChart");
-  const ctx = c.getContext("2d");
-  ctx.clearRect(0, 0, c.width, c.height);
-  if (history.length < 2) return;
-
-  const maxC = Math.max(PLATFORM_CAPACITY, ...history.map(h => h.count));
-  const pad = 24;
-  const w = c.width - pad * 2;
-  const h = c.height - pad * 2;
-
-  // capacity line
+  const rect = c.getBoundingClientRect();
+  c.width = rect.width * 2; c.height = 130 * 2;
+  const ctx = c.getContext("2d"); ctx.scale(2, 2);
+  const W = rect.width, H = 130;
+  ctx.clearRect(0, 0, W, H);
+  if (history.length < 2) {
+    ctx.fillStyle = "#a8a8b0"; ctx.font = "12px Inter, sans-serif";
+    ctx.fillText("Readings will appear here as you analyse frames.", 10, H / 2);
+    return;
+  }
+  const maxC = Math.max(PLATFORM_CAPACITY * 1.1, ...history.map(h => h.count));
+  const pad = 26, w = W - pad * 2, h = H - pad * 2;
   const capY = pad + h - (PLATFORM_CAPACITY / maxC) * h;
-  ctx.strokeStyle = "#e57373";
-  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = "#E24B4A"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(pad, capY); ctx.lineTo(pad + w, capY); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = "#e57373";
-  ctx.font = "11px system-ui";
-  ctx.fillText("capacity", pad + w - 55, capY - 4);
-
-  // count line
-  ctx.strokeStyle = "#2a78d6";
-  ctx.lineWidth = 2;
+  ctx.fillStyle = "#A32D2D"; ctx.font = "10px Inter, sans-serif";
+  ctx.fillText("capacity (" + PLATFORM_CAPACITY + ")", pad, capY - 5);
   ctx.beginPath();
   history.forEach((pt, i) => {
     const x = pad + (i / (history.length - 1)) * w;
     const y = pad + h - (pt.count / maxC) * h;
     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
   });
-  ctx.stroke();
-
-  ctx.fillStyle = "#777";
+  ctx.strokeStyle = "#8E5BFF"; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.stroke();
+  ctx.lineTo(pad + w, pad + h); ctx.lineTo(pad, pad + h); ctx.closePath();
+  ctx.fillStyle = "rgba(142,91,255,0.08)"; ctx.fill();
+  ctx.fillStyle = "#a8a8b0"; ctx.font = "10px Inter, sans-serif";
+  ctx.fillText(String(Math.round(maxC)), 4, pad + 6);
   ctx.fillText("0", 4, pad + h);
-  ctx.fillText(String(maxC), 4, pad + 4);
+  ctx.fillText("15m ago", pad, H - 4);
+  ctx.fillText("now", pad + w - 20, H - 4);
 }
 
-els.clearHistory.addEventListener("click", () => {
-  history.length = 0;
-  drawHistory();
-});
+els.clearHistory.addEventListener("click", () => { history.length = 0; els.trend.textContent = ""; drawHistory(); });
 
-setMode("image");
+// ========== PASSENGER ==========
+let lastReading = null;
+const NEARBY = [
+  { name: "Paxtakor", density: "Moderate" },
+  { name: "Mustaqillik", density: "Low" },
+  { name: "Chilonzor", density: "Low" }
+];
+
+function startPassenger() {
+  renderNearby();
+  // if operator has produced a reading, mirror it; else show a friendly default
+  if (lastReading) applyPassenger(lastReading);
+  else {
+    document.getElementById("pDensity").textContent = "No data";
+    document.getElementById("pDensity").style.color = "#8a8a96";
+    document.getElementById("pReco").innerHTML = "Open the operator console and analyse a frame to see live status here.";
+    setRing(document.getElementById("pRing"), 0, PLATFORM_CAPACITY);
+  }
+}
+
+function applyPassenger(data) {
+  const d = document.getElementById("pDensity");
+  d.textContent = data.density;
+  d.style.color = data.density === "Crowded" ? "#791F1F"
+                : data.density === "Moderate" ? "#854F0B" : "#0F6E56";
+  const ring = document.getElementById("pRing");
+  ring.style.stroke = data.density === "Crowded" ? "#E24B4A"
+                    : data.density === "Moderate" ? "#EF9F27" : "#1f9d6b";
+  setRing(ring, data.count, PLATFORM_CAPACITY);
+
+  const reco = document.getElementById("pReco");
+  if (data.zones && data.zones.length === 3) {
+    const emptiest = data.zones.reduce((a, b) => (b.count < a.count ? b : a));
+    reco.innerHTML = `Head toward the <b>${emptiest.zone}</b> — it's less crowded there.`;
+  } else { reco.textContent = "Platform status updated."; }
+}
+
+function renderNearby() {
+  const colors = { Low: "#0F6E56", Moderate: "#854F0B", Crowded: "#791F1F" };
+  document.getElementById("nearbyList").innerHTML = NEARBY.map((s, i) =>
+    `<div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; ${i < NEARBY.length-1 ? 'border-bottom:1px solid #f0eef6;' : ''}">
+       <span style="font-size:13px;">${s.name}</span>
+       <span style="font-size:12px; font-weight:600; color:${colors[s.density]};">● ${s.density}</span>
+     </div>`).join("");
+}
+
+// start on login
+showScreen("login");
 </script>
 </body>
 </html>
